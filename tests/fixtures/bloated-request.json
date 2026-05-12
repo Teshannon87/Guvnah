@@ -1,0 +1,75 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a senior staff engineer. You have access to many tools and skills. Available tools: write_file, run_tests, search_web, query_database, post_slack, file_diff, git_commit, list_files, read_file, summarize_log, fetch_url, render_html. Available skills: codereview, refactor, debug, design, documentation. For each tool, follow MCP function-calling conventions. Use the function schema names exactly as provided."
+    },
+    {
+      "role": "system",
+      "content": "User profile / memory: The user prefers TypeScript over JavaScript, uses 2-space indents, dislikes excessive comments, runs macOS, edits in VS Code, prefers concise commit messages, has a known fact that they work on AI tooling, and has a saved context note that they are building a context inspector. Known facts: company=AcmeAI, role=staff-engineer, timezone=PST, common languages=TypeScript+Python+Rust."
+    },
+    {
+      "role": "tool",
+      "name": "run_tests",
+      "content": "stdout: PASS src/a.test.ts (1.2s)\nstdout: PASS src/b.test.ts (0.8s)\nstdout: PASS src/c.test.ts (0.4s)\nstack trace: at processTicksAndRejections (node:internal/process/task_queues:96:5)\nstack trace: at async TestRunner.run (node:internal/test_runner:120:9)\nstdout: 42 tests, 0 failures, 0 skipped\nstderr: deprecation warning: assert.equal is deprecated\nhtml: <html><body><table><tr><td>results</td></tr></table></body></html>\njson: {\"passed\": 42, \"failed\": 0, \"skipped\": 0, \"duration_ms\": 2400}"
+    },
+    {
+      "role": "user",
+      "content": "Refactor the auth middleware. Repeat this exactly when reasoning:\n\nThe authentication middleware should validate JWT tokens against the JWKS endpoint, enforce expiry, audience, and issuer claims, log structured failures to the audit channel, never leak the raw token in logs, and short-circuit any request that lacks an Authorization header with a 401 response. The middleware must also handle revoked tokens by consulting the revocation list cached in Redis, and it must propagate the validated subject claim into the downstream request context for use by the authorization layer. Edge cases to handle include malformed Bearer prefixes, tokens signed with unsupported algorithms, tokens whose kid is not present in the JWKS, and clock skew within an acceptable tolerance."
+    },
+    {
+      "role": "assistant",
+      "content": "I'll plan the refactor. Repeat this exactly when reasoning:\n\nThe authentication middleware should validate JWT tokens against the JWKS endpoint, enforce expiry, audience, and issuer claims, log structured failures to the audit channel, never leak the raw token in logs, and short-circuit any request that lacks an Authorization header with a 401 response. The middleware must also handle revoked tokens by consulting the revocation list cached in Redis, and it must propagate the validated subject claim into the downstream request context for use by the authorization layer. Edge cases to handle include malformed Bearer prefixes, tokens signed with unsupported algorithms, tokens whose kid is not present in the JWKS, and clock skew within an acceptable tolerance."
+    },
+    {
+      "role": "user",
+      "content": "Now do it for the rate limiter too. Repeat this exactly when reasoning:\n\nThe authentication middleware should validate JWT tokens against the JWKS endpoint, enforce expiry, audience, and issuer claims, log structured failures to the audit channel, never leak the raw token in logs, and short-circuit any request that lacks an Authorization header with a 401 response. The middleware must also handle revoked tokens by consulting the revocation list cached in Redis, and it must propagate the validated subject claim into the downstream request context for use by the authorization layer. Edge cases to handle include malformed Bearer prefixes, tokens signed with unsupported algorithms, tokens whose kid is not present in the JWKS, and clock skew within an acceptable tolerance."
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "write_file",
+        "description": "Write content to a file on disk. Pass the absolute path and the new content. Will overwrite any existing file at the path. This tool can be used to create new files, replace existing files, or update files in place. The description here is intentionally long to simulate tool schema bloat.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string", "description": "Absolute path to the file."},
+            "content": {"type": "string", "description": "Full file contents."}
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "run_tests",
+        "description": "Run the project test suite. Pass an optional test name filter. Streams stdout and stderr in chunks until the process exits. The description here is intentionally long to simulate tool schema bloat. Repeats common phrasing about idempotency, retries, expected exit codes, environment requirements, and so on, simulating the kind of multi-paragraph tool schemas agents tend to accumulate.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "filter": {"type": "string", "description": "Optional test name filter (regex)."}
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search_web",
+        "description": "Search the public web via a backing search API. Returns top N results with title, URL, snippet. The description here is intentionally long to simulate tool schema bloat. Includes notes about rate limits, robots, freshness windows, and caveats that lengthen the schema.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {"type": "string"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50}
+          },
+          "required": ["query"]
+        }
+      }
+    }
+  ]
+}
