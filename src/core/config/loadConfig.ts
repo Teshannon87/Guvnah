@@ -53,16 +53,28 @@ export function loadConfig(configPath?: string): {
   config: GuvnahConfig;
   source: string | null;
 } {
-  const path = configPath ?? findConfigPath();
+  const path = configPath ?? process.env.GUVNAH_CONFIG ?? findConfigPath();
+  let config: GuvnahConfig;
+  let source: string | null;
   if (!path) {
-    return { config: defaultConfig, source: null };
+    config = defaultConfig;
+    source = null;
+  } else {
+    if (!existsSync(path)) {
+      throw new Error(`Guvnah config not found at ${path}`);
+    }
+    const raw = readFileSync(path, "utf8");
+    const parsed = (parseYaml(raw) ?? {}) as Partial<GuvnahConfig>;
+    const merged = deepMerge(defaultConfig, parsed);
+    config = ConfigSchema.parse(merged);
+    source = path;
   }
-  if (!existsSync(path)) {
-    throw new Error(`Guvnah config not found at ${path}`);
+  // Allow env override of DB path so the CLI works from any CWD.
+  if (process.env.GUVNAH_DB_PATH) {
+    config = {
+      ...config,
+      database: { ...config.database, path: process.env.GUVNAH_DB_PATH },
+    };
   }
-  const raw = readFileSync(path, "utf8");
-  const parsed = (parseYaml(raw) ?? {}) as Partial<GuvnahConfig>;
-  const merged = deepMerge(defaultConfig, parsed);
-  const validated = ConfigSchema.parse(merged);
-  return { config: validated, source: path };
+  return { config, source };
 }
