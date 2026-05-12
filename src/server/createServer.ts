@@ -5,6 +5,7 @@ import { CircuitBreaker } from "../core/proxy/circuitBreaker.js";
 import { registerChatCompletionsRoute } from "./routes/chatCompletions.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { logger } from "../core/logging/logger.js";
+import { RunTracker } from "../core/notify/runTracker.js";
 
 export interface ServerDeps {
   config: GuvnahConfig;
@@ -28,12 +29,18 @@ export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
   );
 
   const breaker = new CircuitBreaker(deps.config.breaker);
+  const runTracker = new RunTracker(deps.config);
+  runTracker.start();
+  app.addHook("onClose", async () => {
+    runTracker.stop();
+  });
 
   registerHealthRoute(app, deps.version);
   registerChatCompletionsRoute(app, {
     config: deps.config,
     db: deps.db,
     breaker,
+    runTracker,
   });
 
   if (deps.config.server.host === "0.0.0.0") {

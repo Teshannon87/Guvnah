@@ -69,6 +69,13 @@ export const ConfigSchema = z.object({
         .object({
           enabled: z.boolean().default(true),
           coin_emoji: z.string().default("🪙"),
+          end_of_run: z
+            .object({
+              enabled: z.boolean().default(true),
+              idle_seconds: z.number().int().positive().default(60),
+              sweep_interval_seconds: z.number().int().positive().default(10),
+            })
+            .default({}),
         })
         .default({}),
     })
