@@ -85,6 +85,18 @@ upstream:
 
 The chain becomes `Hermes-agent → Guvnah Context Inspector → RelayPlane → OpenRouter/Anthropic/OpenAI`.
 
+## Live cost line
+
+After every completed request, Guvnah prints a one-line cost summary to stdout:
+
+```
+🪙 4,820 in / 312 out → $0.0262 (gpt-4o-mini, run=hermes-001)
+```
+
+Pricing is resolved in this order: `pricing.overrides` (in your config) → `.guvnah-context/openrouter-models.json` (if synced) → built-in baseline (~12 popular models). If no source has a price for the model, the line falls back to `🪙 4,820 in / 312 out · cost unknown (...)`. Disable with `notifications.cli.enabled: false`.
+
+Provider prices change. The baseline is a starting point — override in config when you see a gap.
+
 ## Resilience
 
 **Guvnah will never block your agent from reaching the model.** Inspection and DB writes run inside a circuit breaker; if Guvnah's own sidecar work fails, it logs to stderr and forwards the request anyway. After N consecutive failures the breaker opens and Guvnah short-circuits inspection until it cools down, while continuing to forward requests verbatim. The breaker only protects Guvnah's sidecar work — upstream errors are returned to the agent as-is so they can be retried or surfaced normally.
