@@ -31,6 +31,8 @@ export const defaultConfig: GuvnahConfig = {
     large_message_tokens: 5000,
     raw_tool_output_tokens: 3000,
     cache_prefix_window_tokens: 4000,
+    cache_thrash_window_minutes: 5,
+    cache_thrash_distinct_hashes: 2,
     unknown_mass_tokens: 4000,
   },
   breaker: { enabled: true, failure_threshold: 5, cooldown_ms: 30000 },

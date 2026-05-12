@@ -39,3 +39,25 @@ export function detectCacheHostilePrefix(
       "Keep persona/tool index identical across calls and move dynamic state later in the prompt so provider prefix caching can hit.",
   };
 }
+
+/**
+ * Cross-run thrash: if the agent has shipped multiple distinct stable prefixes
+ * within the cache TTL window (~5 min), every call pays a cache miss.
+ */
+export function detectCacheThrash(
+  currentHash: string,
+  recentDistinctHashes: string[],
+  opts: { windowMinutes: number; thresholdDistinct: number; windowTokens: number },
+): ContextFlag | null {
+  const merged = new Set<string>(recentDistinctHashes);
+  merged.add(currentHash);
+  if (merged.size < opts.thresholdDistinct) return null;
+  return {
+    flag_type: "cache_thrash",
+    severity: merged.size >= opts.thresholdDistinct + 2 ? "high" : "medium",
+    message: `Stable prefix changed ${merged.size} times across calls in the last ${opts.windowMinutes} minute(s). Provider prompt cache (~5 min TTL) is being busted on every call.`,
+    estimated_tokens_involved: opts.windowTokens * merged.size,
+    suggestion:
+      "Identify which preamble segment changes between calls (system / tool index / memory) and move volatile content (timestamps, run IDs, ephemeral state) to the tail of the user message.",
+  };
+}

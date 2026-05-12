@@ -6,6 +6,8 @@ import type {
   RepeatedBlock,
   RepeatedBlockRow,
   RunRow,
+  ToolUsageAggregate,
+  ToolUsageEntry,
 } from "../types/index.js";
 
 export function ensureRun(
@@ -194,6 +196,91 @@ export function getLastStablePrefixHash(
     )
     .get(run_id) as { stable_prefix_hash: string } | undefined;
   return row?.stable_prefix_hash ?? null;
+}
+
+/**
+ * Distinct stable_prefix_hash values seen for this agent since `sinceIso`.
+ * Used to detect cross-run cache thrash: if 2+ distinct hashes appeared
+ * inside the cache TTL window, the prompt cache is being busted on every call.
+ */
+export function getRecentPrefixHashesForAgent(
+  db: Database.Database,
+  args: { agent_id: string; sinceIso: string },
+): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT stable_prefix_hash AS h
+       FROM llm_calls
+       WHERE agent_id = @agent_id
+         AND stable_prefix_hash IS NOT NULL
+         AND created_at >= @sinceIso`,
+    )
+    .all(args) as Array<{ h: string }>;
+  return rows.map((r) => r.h);
+}
+
+export function insertToolUsage(
+  db: Database.Database,
+  args: {
+    id: string;
+    call_id: string;
+    run_id: string;
+    agent_id: string;
+    entry: ToolUsageEntry;
+    created_at: string;
+  },
+): void {
+  db.prepare(
+    `INSERT INTO tool_usage (
+      id, call_id, run_id, agent_id, tool_name, shipped, invoked, description_tokens, created_at
+    ) VALUES (
+      @id, @call_id, @run_id, @agent_id, @tool_name, @shipped, @invoked, @description_tokens, @created_at
+    )`,
+  ).run({
+    id: args.id,
+    call_id: args.call_id,
+    run_id: args.run_id,
+    agent_id: args.agent_id,
+    tool_name: args.entry.tool_name,
+    shipped: args.entry.shipped ? 1 : 0,
+    invoked: args.entry.invoked ? 1 : 0,
+    description_tokens: args.entry.description_tokens,
+    created_at: args.created_at,
+  });
+}
+
+export function aggregateToolUsage(
+  db: Database.Database,
+  opts: { agentId?: string; sinceIso?: string; limit?: number },
+): ToolUsageAggregate[] {
+  const clauses: string[] = [];
+  const params: Record<string, unknown> = {};
+  if (opts.agentId) {
+    clauses.push(`agent_id = @agentId`);
+    params.agentId = opts.agentId;
+  }
+  if (opts.sinceIso) {
+    clauses.push(`created_at >= @sinceIso`);
+    params.sinceIso = opts.sinceIso;
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const limit = opts.limit ?? 200;
+  return db
+    .prepare(
+      `SELECT
+         tool_name,
+         SUM(shipped) AS shipped_calls,
+         SUM(invoked) AS invoked_calls,
+         COUNT(*) AS total_calls,
+         CAST(AVG(description_tokens) AS INTEGER) AS avg_description_tokens,
+         CAST(SUM(CASE WHEN shipped = 1 AND invoked = 0 THEN description_tokens ELSE 0 END) AS INTEGER) AS wasted_tokens_est
+       FROM tool_usage
+       ${where}
+       GROUP BY tool_name
+       ORDER BY wasted_tokens_est DESC, shipped_calls DESC
+       LIMIT ${limit}`,
+    )
+    .all(params) as ToolUsageAggregate[];
 }
 
 export function getRecentRuns(

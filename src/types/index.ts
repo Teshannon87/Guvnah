@@ -50,6 +50,7 @@ export type FlagType =
   | "raw_tool_output_bloat"
   | "repeated_block"
   | "cache_hostile_prefix"
+  | "cache_thrash"
   | "large_single_message"
   | "unknown_context_mass";
 
@@ -85,6 +86,35 @@ export interface PromptInspection {
   stablePrefixHash?: string;
   requestHash: string;
   largestMessageTokens: number;
+  toolUsage: ToolUsageEntry[];
+}
+
+export interface ToolUsageEntry {
+  tool_name: string;
+  shipped: boolean;
+  invoked: boolean;
+  description_tokens: number;
+}
+
+export interface ToolUsageRow {
+  id: string;
+  call_id: string;
+  run_id: string;
+  agent_id: string;
+  tool_name: string;
+  shipped: number;
+  invoked: number;
+  description_tokens: number;
+  created_at: string;
+}
+
+export interface ToolUsageAggregate {
+  tool_name: string;
+  shipped_calls: number;
+  invoked_calls: number;
+  total_calls: number;
+  avg_description_tokens: number;
+  wasted_tokens_est: number;
 }
 
 export interface RunRow {

@@ -11,9 +11,11 @@ import {
   ensureRun,
   getLastStablePrefixHash,
   getPriorBlockOccurrences,
+  getRecentPrefixHashesForAgent,
   insertCall,
   insertFlag,
   insertRepeatedBlock,
+  insertToolUsage,
   updateCallResult,
 } from "../../db/queries.js";
 import { logger } from "../../core/logging/logger.js";
@@ -107,10 +109,19 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
           const priorBlockOccurrences = deps.db
             ? (h: string) => getPriorBlockOccurrences(deps.db!, headers.run_id, h)
             : () => 0;
+          const windowMin = deps.config.detection.cache_thrash_window_minutes;
+          const sinceIso = new Date(Date.now() - windowMin * 60_000).toISOString();
+          const recentDistinctPrefixHashes = deps.db
+            ? getRecentPrefixHashesForAgent(deps.db, {
+                agent_id: headers.agent_id,
+                sinceIso,
+              })
+            : [];
           return inspectPrompt(parsed, {
             config: deps.config,
             previousStablePrefixHash,
             priorBlockOccurrences,
+            recentDistinctPrefixHashes,
           });
         },
         null,
@@ -183,6 +194,16 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
               run_id: headers.run_id,
               llm_call_id: callId,
               block,
+              created_at: new Date().toISOString(),
+            });
+          }
+          for (const entry of inspection.toolUsage) {
+            insertToolUsage(deps.db, {
+              id: `tu-${nanoid(10)}`,
+              call_id: callId,
+              run_id: headers.run_id,
+              agent_id: headers.agent_id,
+              entry,
               created_at: new Date().toISOString(),
             });
           }

@@ -5,6 +5,7 @@ import { runProxy } from "./commands/proxy.js";
 import { runReport } from "./commands/report.js";
 import { runInspect } from "./commands/inspect.js";
 import { runConfig } from "./commands/config.js";
+import { runRecommend } from "./commands/recommend.js";
 
 const program = new Command();
 
@@ -56,6 +57,24 @@ program
   .option("-c, --config <path>", "Path to guvnah.context.yaml")
   .action((file: string, opts: { json?: boolean; config?: string }) => {
     runInspect(file, opts);
+  });
+
+program
+  .command("recommend")
+  .description("Surface actionable recommendations based on recent runs. Inspect-only — no changes applied.")
+  .option("--agent <id>", "Filter by agent_id")
+  .option("--since <window>", "Time window like 30m / 6h / 2d (default 24h)")
+  .option("--min-shipped <n>", "Minimum times a tool must have been shipped to flag", (v) => parseInt(v, 10))
+  .option("--json", "Emit JSON instead of formatted text")
+  .option("-c, --config <path>", "Path to guvnah.context.yaml")
+  .action((opts: {
+    agent?: string;
+    since?: string;
+    minShipped?: number;
+    json?: boolean;
+    config?: string;
+  }) => {
+    runRecommend(opts);
   });
 
 program

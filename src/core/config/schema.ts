@@ -39,6 +39,8 @@ export const ConfigSchema = z.object({
     large_message_tokens: z.number().int().positive().default(5000),
     raw_tool_output_tokens: z.number().int().positive().default(3000),
     cache_prefix_window_tokens: z.number().int().positive().default(4000),
+    cache_thrash_window_minutes: z.number().int().positive().default(5),
+    cache_thrash_distinct_hashes: z.number().int().positive().default(2),
     unknown_mass_tokens: z.number().int().positive().default(4000),
   }),
   breaker: z.object({

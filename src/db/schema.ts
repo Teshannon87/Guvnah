@@ -55,9 +55,22 @@ export const SCHEMA_STATEMENTS: string[] = [
     sample_preview TEXT,
     created_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS tool_usage (
+    id TEXT PRIMARY KEY,
+    call_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    shipped INTEGER NOT NULL DEFAULT 0,
+    invoked INTEGER NOT NULL DEFAULT 0,
+    description_tokens INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+  )`,
   `CREATE INDEX IF NOT EXISTS idx_llm_calls_run_id ON llm_calls(run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_context_flags_run_id ON context_flags(run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_context_flags_call_id ON context_flags(llm_call_id)`,
   `CREATE INDEX IF NOT EXISTS idx_repeated_blocks_run_hash ON repeated_blocks(run_id, block_hash)`,
   `CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs(agent_id, started_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_tool_usage_agent_time ON tool_usage(agent_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_tool_usage_call ON tool_usage(call_id)`,
 ];

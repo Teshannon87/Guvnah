@@ -17,12 +17,15 @@ import { detectRawToolOutput } from "./detectRawToolOutput.js";
 import {
   computeStablePrefixHash,
   detectCacheHostilePrefix,
+  detectCacheThrash,
 } from "./detectCacheHostilePrefix.js";
+import { extractToolUsage } from "./extractToolUsage.js";
 
 export interface InspectPromptOptions {
   config: GuvnahConfig;
   priorBlockOccurrences?: (blockHash: string) => number;
   previousStablePrefixHash?: string | null;
+  recentDistinctPrefixHashes?: string[];
 }
 
 export function inspectPrompt(
@@ -151,12 +154,25 @@ export function inspectPrompt(
   );
   if (cacheHostile) flags.push(cacheHostile);
 
+  const cacheThrash = detectCacheThrash(
+    stablePrefixHash,
+    opts.recentDistinctPrefixHashes ?? [],
+    {
+      windowMinutes: config.detection.cache_thrash_window_minutes,
+      thresholdDistinct: config.detection.cache_thrash_distinct_hashes,
+      windowTokens: config.detection.cache_prefix_window_tokens,
+    },
+  );
+  if (cacheThrash) flags.push(cacheThrash);
+
   const requestHash = shortHash(JSON.stringify({
     model: req.model,
     messages,
     tools: req.tools ?? null,
     functions: req.functions ?? null,
   }));
+
+  const toolUsage = extractToolUsage(req);
 
   return {
     promptTokens,
@@ -166,5 +182,6 @@ export function inspectPrompt(
     stablePrefixHash,
     requestHash,
     largestMessageTokens,
+    toolUsage,
   };
 }

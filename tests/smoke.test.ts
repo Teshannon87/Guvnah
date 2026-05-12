@@ -104,7 +104,7 @@ describe("Guvnah smoke", () => {
     expect(text).toContain("Top context bloat flags:");
   });
 
-  it("rejects streaming requests with HTTP 400", async () => {
+  it("forwards streaming requests instead of rejecting them", async () => {
     const res = await undiciRequest(`${ctx.guvnahUrl}/v1/chat/completions`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -114,10 +114,9 @@ describe("Guvnah smoke", () => {
         messages: [{ role: "user", content: "hi" }],
       }),
     });
-    expect(res.statusCode).toBe(400);
-    const err = await res.body.json() as { error: { code: string } };
-    expect(err.error.code).toBe("stream_not_supported");
-    expect(ctx.stub.callCount()).toBe(0);
+    // Streaming is now supported — must not 400 with stream_not_supported.
+    expect(res.statusCode).not.toBe(400);
+    expect(ctx.stub.callCount()).toBe(1);
   });
 
   it("preserves upstream response bytes", async () => {
