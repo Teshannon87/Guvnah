@@ -8,6 +8,13 @@ export interface UpstreamResponse {
   latencyMs: number;
 }
 
+export interface UpstreamStreamResponse {
+  status: number;
+  headers: Record<string, string>;
+  body: AsyncIterable<Buffer>;
+  startedAt: number;
+}
+
 const HOP_BY_HOP = new Set([
   "connection",
   "keep-alive",
@@ -42,6 +49,15 @@ function buildHeaders(
   return out;
 }
 
+function normalizeResponseHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (typeof v === "string") out[k] = v;
+    else if (Array.isArray(v)) out[k] = v.join(",");
+  }
+  return out;
+}
+
 export async function forwardChatCompletion(args: {
   bodyBytes: Buffer;
   headers: Record<string, string | string[] | undefined>;
@@ -61,15 +77,32 @@ export async function forwardChatCompletion(args: {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   const body = Buffer.concat(chunks);
-  const responseHeaders: Record<string, string> = {};
-  for (const [k, v] of Object.entries(res.headers)) {
-    if (typeof v === "string") responseHeaders[k] = v;
-    else if (Array.isArray(v)) responseHeaders[k] = v.join(",");
-  }
   return {
     status: res.statusCode,
-    headers: responseHeaders,
+    headers: normalizeResponseHeaders(res.headers),
     body,
     latencyMs: Date.now() - started,
+  };
+}
+
+export async function forwardChatCompletionStream(args: {
+  bodyBytes: Buffer;
+  headers: Record<string, string | string[] | undefined>;
+  config: GuvnahConfig;
+}): Promise<UpstreamStreamResponse> {
+  const { config, bodyBytes } = args;
+  const url = `${config.upstream.base_url.replace(/\/$/, "")}/chat/completions`;
+  const headers = buildHeaders(args.headers, config.upstream);
+  const started = Date.now();
+  const res = await request(url, {
+    method: "POST",
+    headers,
+    body: bodyBytes,
+  });
+  return {
+    status: res.statusCode,
+    headers: normalizeResponseHeaders(res.headers),
+    body: res.body as unknown as AsyncIterable<Buffer>,
+    startedAt: started,
   };
 }

@@ -6,3 +6,6 @@ dist/
 .guvnah-context/
 coverage/
 .DS_Store
+
+# Local rollback backups (created by hotfix patches)
+*.bak.*

@@ -4,7 +4,7 @@ import type Database from "better-sqlite3";
 import type { GuvnahConfig } from "../../core/config/schema.js";
 import { CircuitBreaker } from "../../core/proxy/circuitBreaker.js";
 import { extractGuvnahHeaders } from "../../core/proxy/normalizeRequest.js";
-import { forwardChatCompletion } from "../../core/proxy/providerClient.js";
+import { forwardChatCompletion, forwardChatCompletionStream } from "../../core/proxy/providerClient.js";
 import { inspectPrompt } from "../../core/inspect/inspectPrompt.js";
 import {
   bumpRunTotals,
@@ -48,6 +48,32 @@ function extractResponseTokens(body: Buffer): number {
   }
 }
 
+function extractStreamingUsage(buffered: Buffer): number {
+  // SSE format: data: {...}\n\n entries. Look for the last chunk with usage field.
+  // Some providers include usage only in the final non-[DONE] data chunk.
+  try {
+    const text = buffered.toString("utf8");
+    const lines = text.split("\n").filter((l) => l.startsWith("data: "));
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const payload = (lines[i] ?? "").slice(6).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const obj = JSON.parse(payload) as {
+          usage?: { completion_tokens?: number; output_tokens?: number };
+        };
+        if (obj.usage) {
+          return obj.usage.completion_tokens ?? obj.usage.output_tokens ?? 0;
+        }
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
 function copyResponseHeaders(reply: FastifyReply, headers: Record<string, string>): void {
   for (const [k, v] of Object.entries(headers)) {
     const lower = k.toLowerCase();
@@ -64,18 +90,7 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
   app.post("/v1/chat/completions", async (req: FastifyRequest, reply: FastifyReply) => {
     const rawBody = req.body as Buffer;
     const parsed = parseBodyJson(rawBody);
-
-    if (parsed?.stream === true) {
-      reply.code(400);
-      return {
-        error: {
-          message:
-            "Guvnah Context Inspector v1 does not support streaming. Set stream: false or point your agent directly at the upstream.",
-          type: "guvnah_unsupported",
-          code: "stream_not_supported",
-        },
-      };
-    }
+    const isStreaming = parsed?.stream === true;
 
     const headers = extractGuvnahHeaders(req.headers);
     const callId = `call-${nanoid(10)}`;
@@ -140,7 +155,109 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
       undefined,
     );
 
-    // CRITICAL: forwarding is never wrapped by the breaker.
+    const recordPost = async (responseTokens: number, latencyMs: number, status: number, errorMessage: string | null) => {
+      await deps.breaker.run<void>(
+        "db-post",
+        () => {
+          if (!deps.db || !inspection) return;
+          updateCallResult(deps.db, {
+            id: callId,
+            response_tokens: responseTokens,
+            total_tokens: inspection.promptTokens + responseTokens,
+            latency_ms: latencyMs,
+            status: status >= 200 && status < 300 ? "ok" : "upstream_error",
+            error_message: errorMessage,
+          });
+          for (const flag of inspection.flags) {
+            insertFlag(deps.db, {
+              id: `flag-${nanoid(10)}`,
+              run_id: headers.run_id,
+              llm_call_id: callId,
+              flag: flag,
+              created_at: new Date().toISOString(),
+            });
+          }
+          for (const block of inspection.repeatedBlocks) {
+            insertRepeatedBlock(deps.db, {
+              id: `rb-${nanoid(10)}`,
+              run_id: headers.run_id,
+              llm_call_id: callId,
+              block,
+              created_at: new Date().toISOString(),
+            });
+          }
+          bumpRunTotals(deps.db, {
+            run_id: headers.run_id,
+            prompt_tokens: inspection.promptTokens,
+            response_tokens: responseTokens,
+            flags_added: inspection.flags.length,
+          });
+        },
+        undefined,
+      );
+    };
+
+    if (isStreaming) {
+      // Streaming path: pipe SSE chunks through while accumulating for usage.
+      let upstream;
+      try {
+        upstream = await forwardChatCompletionStream({
+          bodyBytes: rawBody,
+          headers: req.headers as Record<string, string | string[] | undefined>,
+          config: deps.config,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error("guvnah.upstream.error", { error: msg, streaming: true });
+        await recordPost(0, 0, 502, msg);
+        reply.code(502);
+        return {
+          error: {
+            message: `Upstream request failed: ${msg}`,
+            type: "upstream_error",
+            code: "upstream_unreachable",
+          },
+        };
+      }
+
+      copyResponseHeaders(reply, upstream.headers);
+      reply.code(upstream.status);
+      reply.hijack();
+      const raw = reply.raw;
+      // Re-write headers Fastify didn't push because of hijack
+      for (const [k, v] of Object.entries(upstream.headers)) {
+        const lower = k.toLowerCase();
+        if (
+          lower === "content-length" ||
+          lower === "transfer-encoding" ||
+          lower === "connection"
+        ) continue;
+        try { raw.setHeader(k, v); } catch { /* ignore */ }
+      }
+      raw.statusCode = upstream.status;
+
+      const accumulated: Buffer[] = [];
+      try {
+        for await (const chunk of upstream.body) {
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          accumulated.push(buf);
+          raw.write(buf);
+        }
+        raw.end();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error("guvnah.stream.error", { error: msg });
+        try { raw.end(); } catch { /* ignore */ }
+        await recordPost(0, Date.now() - upstream.startedAt, 502, msg);
+        return;
+      }
+
+      const responseTokens = extractStreamingUsage(Buffer.concat(accumulated));
+      await recordPost(responseTokens, Date.now() - upstream.startedAt, upstream.status, null);
+      return;
+    }
+
+    // Non-streaming path (original behavior)
     let upstream;
     try {
       upstream = await forwardChatCompletion({
@@ -151,21 +268,7 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error("guvnah.upstream.error", { error: msg });
-      await deps.breaker.run<void>(
-        "db-post-error",
-        () => {
-          if (!deps.db || !inspection) return;
-          updateCallResult(deps.db, {
-            id: callId,
-            response_tokens: 0,
-            total_tokens: inspection.promptTokens,
-            latency_ms: 0,
-            status: "upstream_error",
-            error_message: msg,
-          });
-        },
-        undefined,
-      );
+      await recordPost(0, 0, 502, msg);
       reply.code(502);
       return {
         error: {
@@ -177,46 +280,7 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
     }
 
     const responseTokens = extractResponseTokens(upstream.body);
-
-    await deps.breaker.run<void>(
-      "db-post",
-      () => {
-        if (!deps.db || !inspection) return;
-        updateCallResult(deps.db, {
-          id: callId,
-          response_tokens: responseTokens,
-          total_tokens: inspection.promptTokens + responseTokens,
-          latency_ms: upstream.latencyMs,
-          status: upstream.status >= 200 && upstream.status < 300 ? "ok" : "upstream_error",
-          error_message: null,
-        });
-        for (const flag of inspection.flags) {
-          insertFlag(deps.db, {
-            id: `flag-${nanoid(10)}`,
-            run_id: headers.run_id,
-            llm_call_id: callId,
-            flag: flag,
-            created_at: new Date().toISOString(),
-          });
-        }
-        for (const block of inspection.repeatedBlocks) {
-          insertRepeatedBlock(deps.db, {
-            id: `rb-${nanoid(10)}`,
-            run_id: headers.run_id,
-            llm_call_id: callId,
-            block,
-            created_at: new Date().toISOString(),
-          });
-        }
-        bumpRunTotals(deps.db, {
-          run_id: headers.run_id,
-          prompt_tokens: inspection.promptTokens,
-          response_tokens: responseTokens,
-          flags_added: inspection.flags.length,
-        });
-      },
-      undefined,
-    );
+    await recordPost(responseTokens, upstream.latencyMs, upstream.status, null);
 
     copyResponseHeaders(reply, upstream.headers);
     reply.code(upstream.status);
