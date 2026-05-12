@@ -36,6 +36,14 @@ export const defaultConfig: GuvnahConfig = {
     unknown_mass_tokens: 4000,
   },
   breaker: { enabled: true, failure_threshold: 5, cooldown_ms: 30000 },
+  pricing: {
+    use_baseline: true,
+    use_openrouter_cache: true,
+    overrides: [],
+  },
+  notifications: {
+    cli: { enabled: true, coin_emoji: "🪙" },
+  },
   categories: {
     system: { role_patterns: ["system", "developer"] },
     tools: {

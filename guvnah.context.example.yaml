@@ -50,6 +50,27 @@ breaker:
   failure_threshold: 5
   cooldown_ms: 30000
 
+# Per-model pricing for the live cost CLI line and (later) routing scorer.
+# Resolution order: overrides > .guvnah-context/openrouter-models.json (if present) > built-in baseline.
+# Prices are USD per 1M tokens. Provider prices change; override here if the
+# baseline is stale.
+pricing:
+  use_baseline: true
+  use_openrouter_cache: true
+  overrides: []
+  # Example:
+  # overrides:
+  #   - model: "gpt-4o"
+  #     input_per_mtok: 2.50
+  #     output_per_mtok: 10.00
+
+# After each completed request Guvnah prints a one-line cost summary to stdout:
+#   🪙 4,820 in / 312 out → $0.0262 (gpt-4o-mini, run=demo-run-1)
+notifications:
+  cli:
+    enabled: true
+    coin_emoji: "🪙"
+
 categories:
   system:
     role_patterns: ["system", "developer"]

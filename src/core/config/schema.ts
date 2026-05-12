@@ -48,6 +48,31 @@ export const ConfigSchema = z.object({
     failure_threshold: z.number().int().positive().default(5),
     cooldown_ms: z.number().int().positive().default(30000),
   }),
+  pricing: z
+    .object({
+      use_baseline: z.boolean().default(true),
+      use_openrouter_cache: z.boolean().default(true),
+      overrides: z
+        .array(
+          z.object({
+            model: z.string(),
+            input_per_mtok: z.number().nonnegative(),
+            output_per_mtok: z.number().nonnegative(),
+          }),
+        )
+        .default([]),
+    })
+    .default({}),
+  notifications: z
+    .object({
+      cli: z
+        .object({
+          enabled: z.boolean().default(true),
+          coin_emoji: z.string().default("🪙"),
+        })
+        .default({}),
+    })
+    .default({}),
   categories: z.object({
     system: z.object({
       role_patterns: z.array(z.string()).default(["system", "developer"]),

@@ -19,12 +19,18 @@ import {
   updateCallResult,
 } from "../../db/queries.js";
 import { logger } from "../../core/logging/logger.js";
+import { emitCostLine } from "../../core/notify/cliNotifier.js";
 import type { ChatRequest, PromptInspection } from "../../types/index.js";
 
 interface RouteDeps {
   config: GuvnahConfig;
   db: Database.Database | null;
   breaker: CircuitBreaker;
+}
+
+interface UsageNumbers {
+  promptTokens: number;
+  responseTokens: number;
 }
 
 function parseBodyJson(buf: Buffer): ChatRequest | null {
@@ -35,22 +41,27 @@ function parseBodyJson(buf: Buffer): ChatRequest | null {
   }
 }
 
-function extractResponseTokens(body: Buffer): number {
+function extractUsage(body: Buffer): UsageNumbers {
   try {
     const parsed = JSON.parse(body.toString("utf8")) as {
-      usage?: { completion_tokens?: number; output_tokens?: number };
+      usage?: {
+        prompt_tokens?: number;
+        input_tokens?: number;
+        completion_tokens?: number;
+        output_tokens?: number;
+      };
     };
-    return (
-      parsed.usage?.completion_tokens ??
-      parsed.usage?.output_tokens ??
-      0
-    );
+    return {
+      promptTokens: parsed.usage?.prompt_tokens ?? parsed.usage?.input_tokens ?? 0,
+      responseTokens:
+        parsed.usage?.completion_tokens ?? parsed.usage?.output_tokens ?? 0,
+    };
   } catch {
-    return 0;
+    return { promptTokens: 0, responseTokens: 0 };
   }
 }
 
-function extractStreamingUsage(buffered: Buffer): number {
+function extractStreamingUsage(buffered: Buffer): UsageNumbers {
   // SSE format: data: {...}\n\n entries. Look for the last chunk with usage field.
   // Some providers include usage only in the final non-[DONE] data chunk.
   try {
@@ -61,10 +72,19 @@ function extractStreamingUsage(buffered: Buffer): number {
       if (!payload || payload === "[DONE]") continue;
       try {
         const obj = JSON.parse(payload) as {
-          usage?: { completion_tokens?: number; output_tokens?: number };
+          usage?: {
+            prompt_tokens?: number;
+            input_tokens?: number;
+            completion_tokens?: number;
+            output_tokens?: number;
+          };
         };
         if (obj.usage) {
-          return obj.usage.completion_tokens ?? obj.usage.output_tokens ?? 0;
+          return {
+            promptTokens: obj.usage.prompt_tokens ?? obj.usage.input_tokens ?? 0,
+            responseTokens:
+              obj.usage.completion_tokens ?? obj.usage.output_tokens ?? 0,
+          };
         }
       } catch {
         continue;
@@ -73,7 +93,7 @@ function extractStreamingUsage(buffered: Buffer): number {
   } catch {
     // ignore
   }
-  return 0;
+  return { promptTokens: 0, responseTokens: 0 };
 }
 
 function copyResponseHeaders(reply: FastifyReply, headers: Record<string, string>): void {
@@ -218,6 +238,24 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
       );
     };
 
+    const emitCostLineSafe = (usage: UsageNumbers) => {
+      try {
+        emitCostLine(
+          {
+            model: parsed?.model ?? null,
+            promptTokens: inspection?.promptTokens ?? usage.promptTokens,
+            responseTokens: usage.responseTokens,
+            runId: headers.run_id,
+          },
+          deps.config,
+        );
+      } catch (err) {
+        logger.warn("guvnah.notify.failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    };
+
     if (isStreaming) {
       // Streaming path: pipe SSE chunks through while accumulating for usage.
       let upstream;
@@ -273,12 +311,13 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
         return;
       }
 
-      const responseTokens = extractStreamingUsage(Buffer.concat(accumulated));
-      await recordPost(responseTokens, Date.now() - upstream.startedAt, upstream.status, null);
+      const usage = extractStreamingUsage(Buffer.concat(accumulated));
+      await recordPost(usage.responseTokens, Date.now() - upstream.startedAt, upstream.status, null);
+      emitCostLineSafe(usage);
       return;
     }
 
-    // Non-streaming path (original behavior)
+    // Non-streaming path
     let upstream;
     try {
       upstream = await forwardChatCompletion({
@@ -300,8 +339,9 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
       };
     }
 
-    const responseTokens = extractResponseTokens(upstream.body);
-    await recordPost(responseTokens, upstream.latencyMs, upstream.status, null);
+    const usage = extractUsage(upstream.body);
+    await recordPost(usage.responseTokens, upstream.latencyMs, upstream.status, null);
+    emitCostLineSafe(usage);
 
     copyResponseHeaders(reply, upstream.headers);
     reply.code(upstream.status);
