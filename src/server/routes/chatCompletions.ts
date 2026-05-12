@@ -20,12 +20,14 @@ import {
 } from "../../db/queries.js";
 import { logger } from "../../core/logging/logger.js";
 import { emitCostLine } from "../../core/notify/cliNotifier.js";
+import type { RunTracker } from "../../core/notify/runTracker.js";
 import type { ChatRequest, PromptInspection } from "../../types/index.js";
 
 interface RouteDeps {
   config: GuvnahConfig;
   db: Database.Database | null;
   breaker: CircuitBreaker;
+  runTracker: RunTracker;
 }
 
 interface UsageNumbers {
@@ -238,17 +240,31 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
       );
     };
 
-    const emitCostLineSafe = (usage: UsageNumbers) => {
+    const notifySafe = (usage: UsageNumbers) => {
+      const promptTokens = inspection?.promptTokens ?? usage.promptTokens;
       try {
         emitCostLine(
           {
             model: parsed?.model ?? null,
-            promptTokens: inspection?.promptTokens ?? usage.promptTokens,
+            promptTokens,
             responseTokens: usage.responseTokens,
             runId: headers.run_id,
           },
           deps.config,
         );
+      } catch (err) {
+        logger.warn("guvnah.notify.failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      try {
+        deps.runTracker.recordCall({
+          runId: headers.run_id,
+          model: parsed?.model ?? null,
+          promptTokens,
+          responseTokens: usage.responseTokens,
+          flags: inspection?.flags ?? [],
+        });
       } catch (err) {
         logger.warn("guvnah.notify.failed", {
           error: err instanceof Error ? err.message : String(err),
@@ -313,7 +329,7 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
 
       const usage = extractStreamingUsage(Buffer.concat(accumulated));
       await recordPost(usage.responseTokens, Date.now() - upstream.startedAt, upstream.status, null);
-      emitCostLineSafe(usage);
+      notifySafe(usage);
       return;
     }
 
@@ -341,7 +357,7 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
 
     const usage = extractUsage(upstream.body);
     await recordPost(usage.responseTokens, upstream.latencyMs, upstream.status, null);
-    emitCostLineSafe(usage);
+    notifySafe(usage);
 
     copyResponseHeaders(reply, upstream.headers);
     reply.code(upstream.status);

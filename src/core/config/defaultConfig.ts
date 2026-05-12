@@ -42,7 +42,15 @@ export const defaultConfig: GuvnahConfig = {
     overrides: [],
   },
   notifications: {
-    cli: { enabled: true, coin_emoji: "🪙" },
+    cli: {
+      enabled: true,
+      coin_emoji: "🪙",
+      end_of_run: {
+        enabled: true,
+        idle_seconds: 60,
+        sweep_interval_seconds: 10,
+      },
+    },
   },
   categories: {
     system: { role_patterns: ["system", "developer"] },

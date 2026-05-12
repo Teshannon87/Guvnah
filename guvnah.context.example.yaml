@@ -66,10 +66,18 @@ pricing:
 
 # After each completed request Guvnah prints a one-line cost summary to stdout:
 #   🪙 4,820 in / 312 out → $0.0262 (gpt-4o-mini, run=demo-run-1)
+#
+# When a run goes quiet for `idle_seconds` (no new calls under that run_id),
+# Guvnah also auto-prints a 4-line summary aggregating that run's totals and
+# top bloat fixes. Sweeper checks every `sweep_interval_seconds`.
 notifications:
   cli:
     enabled: true
     coin_emoji: "🪙"
+    end_of_run:
+      enabled: true
+      idle_seconds: 60
+      sweep_interval_seconds: 10
 
 categories:
   system:

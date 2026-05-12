@@ -97,6 +97,19 @@ Pricing is resolved in this order: `pricing.overrides` (in your config) → `.gu
 
 Provider prices change. The baseline is a starting point — override in config when you see a gap.
 
+## End-of-run summary
+
+When a run goes quiet for `idle_seconds` (default 60s), Guvnah automatically prints a 4-line summary aggregating that run's totals and top bloat fixes:
+
+```
+📊 Run summary: hermes-001
+   12 calls · 58,420 in / 4,231 out → $0.94 total
+   Flags: cache_hostile_prefix (8), tool_bloat (5), oversized_context (3)
+   Top fix: cache_hostile_prefix in 8/12 calls — Stabilize your system prompt to enable prefix caching (est. 18,400 tokens involved)
+```
+
+No new commands to run, no cron to configure. It also flushes any in-flight runs on graceful shutdown so you never lose the summary for the run that was happening when you stopped the proxy. Disable with `notifications.cli.end_of_run.enabled: false`.
+
 ## Resilience
 
 **Guvnah will never block your agent from reaching the model.** Inspection and DB writes run inside a circuit breaker; if Guvnah's own sidecar work fails, it logs to stderr and forwards the request anyway. After N consecutive failures the breaker opens and Guvnah short-circuits inspection until it cools down, while continuing to forward requests verbatim. The breaker only protects Guvnah's sidecar work — upstream errors are returned to the agent as-is so they can be retried or surfaced normally.
