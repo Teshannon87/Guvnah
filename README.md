@@ -52,10 +52,16 @@ npm link            # exposes the `guvnah-context` binary on your PATH
 ## Quickstart
 
 ```bash
-guvnah-context init
-# edits .env if needed (UPSTREAM_API_KEY)
+cp guvnah.context.example.yaml guvnah.context.yaml   # template → runtime
+# edit guvnah.context.yaml — at minimum set upstream.base_url
+guvnah-context init                                  # bootstraps .env + sqlite
+# edit .env (UPSTREAM_API_KEY)
 guvnah-context proxy
 ```
+
+`guvnah.context.yaml` is the runtime config and is **gitignored** so a
+`git pull` never touches it. Only `guvnah.context.example.yaml` is tracked.
+Treat the example file as documentation; copy it into place once per host.
 
 The proxy boots at `http://127.0.0.1:8791/v1` and forwards `POST /v1/chat/completions` to the URL in `guvnah.context.yaml`.
 

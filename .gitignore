@@ -9,3 +9,10 @@ coverage/
 
 # Local rollback backups (created by hotfix patches)
 *.bak.*
+
+# Runtime config — only the .example.yaml is tracked. The real config holds
+# your upstream URL and lives outside source control so a `git pull` (or a
+# `git stash --include-untracked`) can never sweep it up. See README.
+guvnah.context.yaml
+guvnah.context.yml
+guvnah.context.local.yaml
