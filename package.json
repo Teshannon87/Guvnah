@@ -2,7 +2,7 @@
   "name": "guvnah-context",
   "version": "0.1.0",
   "description": "Local-first proxy that inspects what your AI agent is stuffing into the prompt.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "guvnah-context": "./dist/cli/index.js"

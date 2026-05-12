@@ -1,5 +1,22 @@
 # Guvnah Context Inspector
 
+```
+╔══════════════════════════════════════════════════════╗
+║                       GUV'NAH                        ║
+║                Royal Context Inspectorate            ║
+║                                                      ║
+║   Ensuring the Majesty's tokens do not fall prey     ║
+║   to bloated prompts, runaway agents, needless       ║
+║   model extravagance, or rogue automata of           ║
+║   questionable judgment.                             ║
+║                                                      ║
+║   Some agents are loyal servants of the Crown.       ║
+║   Others are expensive little goblins in waistcoats. ║
+║                                                      ║
+║   We inspect accordingly.                            ║
+╚══════════════════════════════════════════════════════╝
+```
+
 Guvnah Context Inspector is a local-first proxy that shows what your AI agent is stuffing into the prompt.
 
 It sits between your agent (e.g. Hermes-agent) and your LLM provider or RelayPlane, inspects outgoing chat completion requests, estimates token usage, categorizes context, detects repeated blocks and tool/memory bloat, and produces plain-English reports.
@@ -139,4 +156,4 @@ See [`guvnah.context.example.yaml`](./guvnah.context.example.yaml) and [docs/con
 
 ## License
 
-MIT.
+Apache License 2.0. See [LICENSE](./LICENSE) and [NOTICE](./NOTICE).
