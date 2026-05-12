@@ -64,6 +64,7 @@ export const SCHEMA_STATEMENTS: string[] = [
     shipped INTEGER NOT NULL DEFAULT 0,
     invoked INTEGER NOT NULL DEFAULT 0,
     description_tokens INTEGER DEFAULT 0,
+    description_preview TEXT,
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_llm_calls_run_id ON llm_calls(run_id)`,

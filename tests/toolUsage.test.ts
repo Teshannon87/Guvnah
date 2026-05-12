@@ -85,4 +85,44 @@ describe("buildRecommendations", () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("rolls up to an unused_toolset recommendation when every shipped Hermes tool in that toolset is unused", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "guv-toolset-"));
+    const dbPath = join(tmp, "guv.sqlite");
+    try {
+      const handle = openDatabase(dbPath);
+      if (!handle.db) throw new Error("db open failed");
+      const db = handle.db;
+      const created = new Date().toISOString();
+      // skills toolset: skill_manage, skill_view, skills_list — none invoked
+      for (const tool of ["skill_manage", "skill_view", "skills_list"]) {
+        for (let i = 0; i < 9; i++) {
+          insertToolUsage(db, {
+            id: `tu-${tool}-${i}`,
+            call_id: `c-${tool}-${i}`,
+            run_id: "r-1",
+            agent_id: "agent-y",
+            entry: {
+              tool_name: tool,
+              shipped: true,
+              invoked: false,
+              description_tokens: 500,
+              description_preview: `manages skills (${tool})`,
+            },
+            created_at: created,
+          });
+        }
+      }
+      const recs = buildRecommendations(db, { agentId: "agent-y", minShippedCalls: 5 });
+      const toolsetRec = recs.find((r) => r.id === "rec-unused-toolset-skills");
+      expect(toolsetRec).toBeDefined();
+      expect(toolsetRec?.kind).toBe("unused_toolset");
+      // Per-tool recs should be suppressed in favor of the toolset rec
+      expect(recs.find((r) => r.id === "rec-unused-skill_manage")).toBeUndefined();
+      expect(recs.find((r) => r.id === "rec-unused-skill_view")).toBeUndefined();
+      closeDatabase({ db, path: dbPath, error: null });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

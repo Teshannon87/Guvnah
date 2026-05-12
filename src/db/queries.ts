@@ -232,9 +232,9 @@ export function insertToolUsage(
 ): void {
   db.prepare(
     `INSERT INTO tool_usage (
-      id, call_id, run_id, agent_id, tool_name, shipped, invoked, description_tokens, created_at
+      id, call_id, run_id, agent_id, tool_name, shipped, invoked, description_tokens, description_preview, created_at
     ) VALUES (
-      @id, @call_id, @run_id, @agent_id, @tool_name, @shipped, @invoked, @description_tokens, @created_at
+      @id, @call_id, @run_id, @agent_id, @tool_name, @shipped, @invoked, @description_tokens, @description_preview, @created_at
     )`,
   ).run({
     id: args.id,
@@ -245,6 +245,7 @@ export function insertToolUsage(
     shipped: args.entry.shipped ? 1 : 0,
     invoked: args.entry.invoked ? 1 : 0,
     description_tokens: args.entry.description_tokens,
+    description_preview: args.entry.description_preview,
     created_at: args.created_at,
   });
 }
@@ -273,7 +274,11 @@ export function aggregateToolUsage(
          SUM(invoked) AS invoked_calls,
          COUNT(*) AS total_calls,
          CAST(AVG(description_tokens) AS INTEGER) AS avg_description_tokens,
-         CAST(SUM(CASE WHEN shipped = 1 AND invoked = 0 THEN description_tokens ELSE 0 END) AS INTEGER) AS wasted_tokens_est
+         CAST(SUM(CASE WHEN shipped = 1 AND invoked = 0 THEN description_tokens ELSE 0 END) AS INTEGER) AS wasted_tokens_est,
+         (SELECT description_preview FROM tool_usage tu2
+           WHERE tu2.tool_name = tool_usage.tool_name
+             AND tu2.description_preview IS NOT NULL
+           ORDER BY tu2.created_at DESC LIMIT 1) AS description_preview
        FROM tool_usage
        ${where}
        GROUP BY tool_name

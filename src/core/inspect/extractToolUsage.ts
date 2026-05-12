@@ -6,7 +6,10 @@ export interface ToolUsageEntry {
   shipped: boolean;
   invoked: boolean;
   description_tokens: number;
+  description_preview: string | null;
 }
+
+const DESCRIPTION_PREVIEW_CHARS = 200;
 
 /**
  * Returns one entry per distinct tool seen in this request, with:
@@ -18,18 +21,21 @@ export interface ToolUsageEntry {
  * Across many calls in a run that captures the actual invocation pattern.
  */
 export function extractToolUsage(req: ChatRequest): ToolUsageEntry[] {
-  const shipped = new Map<string, number>();
+  const shipped = new Map<
+    string,
+    { schemaTokens: number; description: string | null }
+  >();
 
   if (Array.isArray(req.tools)) {
     for (const t of req.tools) {
-      const { name, schemaTokens } = extractShipped(t);
-      if (name) shipped.set(name, (shipped.get(name) ?? 0) + schemaTokens);
+      const info = extractShipped(t);
+      if (info.name) mergeShipped(shipped, info);
     }
   }
   if (Array.isArray(req.functions)) {
     for (const f of req.functions) {
-      const { name, schemaTokens } = extractShipped(f);
-      if (name) shipped.set(name, (shipped.get(name) ?? 0) + schemaTokens);
+      const info = extractShipped(f);
+      if (info.name) mergeShipped(shipped, info);
     }
   }
 
@@ -48,28 +54,68 @@ export function extractToolUsage(req: ChatRequest): ToolUsageEntry[] {
   const allNames = new Set<string>([...shipped.keys(), ...invoked]);
   const entries: ToolUsageEntry[] = [];
   for (const name of allNames) {
+    const s = shipped.get(name);
     entries.push({
       tool_name: name,
-      shipped: shipped.has(name),
+      shipped: !!s,
       invoked: invoked.has(name),
-      description_tokens: shipped.get(name) ?? 0,
+      description_tokens: s?.schemaTokens ?? 0,
+      description_preview: s?.description ?? null,
     });
   }
   return entries;
 }
 
-function extractShipped(raw: unknown): { name: string | null; schemaTokens: number } {
-  if (!raw || typeof raw !== "object") return { name: null, schemaTokens: 0 };
+function mergeShipped(
+  shipped: Map<string, { schemaTokens: number; description: string | null }>,
+  info: { name: string; schemaTokens: number; description: string | null },
+): void {
+  const existing = shipped.get(info.name);
+  if (existing) {
+    existing.schemaTokens += info.schemaTokens;
+    if (!existing.description && info.description) {
+      existing.description = info.description;
+    }
+    return;
+  }
+  shipped.set(info.name, {
+    schemaTokens: info.schemaTokens,
+    description: info.description,
+  });
+}
+
+interface ShippedInfo {
+  name: string;
+  schemaTokens: number;
+  description: string | null;
+}
+
+function extractShipped(raw: unknown): ShippedInfo | { name: null; schemaTokens: 0; description: null } {
+  if (!raw || typeof raw !== "object") return { name: null, schemaTokens: 0, description: null };
   const obj = raw as Record<string, unknown>;
   // OpenAI: { type: "function", function: { name, description, parameters } }
   const fn = obj.function as Record<string, unknown> | undefined;
   let name: string | null = null;
-  if (fn && typeof fn.name === "string") name = fn.name;
+  let description: string | null = null;
+  if (fn && typeof fn.name === "string") {
+    name = fn.name;
+    if (typeof fn.description === "string") description = fn.description;
+  }
   // Anthropic-style or legacy functions array: { name, description, parameters }
-  if (!name && typeof obj.name === "string") name = obj.name;
-  if (!name) return { name: null, schemaTokens: 0 };
+  if (!name && typeof obj.name === "string") {
+    name = obj.name;
+    if (typeof obj.description === "string") description = obj.description;
+  }
+  if (!name) return { name: null, schemaTokens: 0, description: null };
   const schemaTokens = countTokens(JSON.stringify(raw));
-  return { name, schemaTokens };
+  const preview = description
+    ? truncate(description.replace(/\s+/g, " ").trim(), DESCRIPTION_PREVIEW_CHARS)
+    : null;
+  return { name, schemaTokens, description: preview };
+}
+
+function truncate(s: string, n: number): string {
+  return s.length <= n ? s : s.slice(0, n - 1) + "…";
 }
 
 function readToolCallName(call: unknown): string | null {

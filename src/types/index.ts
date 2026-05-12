@@ -94,6 +94,7 @@ export interface ToolUsageEntry {
   shipped: boolean;
   invoked: boolean;
   description_tokens: number;
+  description_preview: string | null;
 }
 
 export interface ToolUsageRow {
@@ -105,6 +106,7 @@ export interface ToolUsageRow {
   shipped: number;
   invoked: number;
   description_tokens: number;
+  description_preview: string | null;
   created_at: string;
 }
 
@@ -115,6 +117,7 @@ export interface ToolUsageAggregate {
   total_calls: number;
   avg_description_tokens: number;
   wasted_tokens_est: number;
+  description_preview: string | null;
 }
 
 export interface RunRow {

@@ -15,8 +15,14 @@ export function formatRecommendations(recs: Recommendation[]): string {
     lines.push(`  reason: ${r.reason}`);
     lines.push(`  action: ${r.suggested_action}`);
     lines.push(`  revert: ${r.revert_hint}`);
-    if (Object.keys(r.evidence).length > 0) {
-      const ev = Object.entries(r.evidence)
+    const desc = r.evidence.description_preview;
+    if (typeof desc === "string" && desc.length > 0) {
+      lines.push(`  description: "${desc}"`);
+    }
+    const evidence = { ...r.evidence };
+    delete evidence.description_preview;
+    if (Object.keys(evidence).length > 0) {
+      const ev = Object.entries(evidence)
         .map(([k, v]) => `${k}=${formatVal(v)}`)
         .join(", ");
       lines.push(`  evidence: ${ev}`);
