@@ -20,6 +20,7 @@ import {
 } from "../../db/queries.js";
 import { logger } from "../../core/logging/logger.js";
 import { emitCostLine } from "../../core/notify/cliNotifier.js";
+import { countTokens } from "../../core/tokens/countTokens.js";
 import type { ChatRequest, PromptInspection } from "../../types/index.js";
 
 interface RouteDeps {
@@ -62,13 +63,19 @@ function extractUsage(body: Buffer): UsageNumbers {
 }
 
 function extractStreamingUsage(buffered: Buffer): UsageNumbers {
-  // SSE format: data: {...}\n\n entries. Look for the last chunk with usage field.
-  // Some providers include usage only in the final non-[DONE] data chunk.
+  // SSE format: data: {...}\n\n entries. Two paths:
+  //   1. If a chunk carries `usage` (provider opted in), use it as-is.
+  //   2. Otherwise (e.g. Google's OpenAI-compat endpoint by default) reconstruct
+  //      response tokens by tokenizing the assembled assistant content from all
+  //      delta chunks. promptTokens stays 0 and the caller falls back to
+  //      inspection.promptTokens. No request mutation involved.
+  let assistantText = "";
+  let foundUsage: UsageNumbers | null = null;
   try {
     const text = buffered.toString("utf8");
     const lines = text.split("\n").filter((l) => l.startsWith("data: "));
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const payload = (lines[i] ?? "").slice(6).trim();
+    for (const line of lines) {
+      const payload = line.slice(6).trim();
       if (!payload || payload === "[DONE]") continue;
       try {
         const obj = JSON.parse(payload) as {
@@ -78,13 +85,26 @@ function extractStreamingUsage(buffered: Buffer): UsageNumbers {
             completion_tokens?: number;
             output_tokens?: number;
           };
+          choices?: Array<{
+            delta?: {
+              content?: string | Array<{ text?: string }>;
+            };
+          }>;
         };
-        if (obj.usage) {
-          return {
+        if (obj.usage && !foundUsage) {
+          foundUsage = {
             promptTokens: obj.usage.prompt_tokens ?? obj.usage.input_tokens ?? 0,
             responseTokens:
               obj.usage.completion_tokens ?? obj.usage.output_tokens ?? 0,
           };
+        }
+        const delta = obj.choices?.[0]?.delta?.content;
+        if (typeof delta === "string") {
+          assistantText += delta;
+        } else if (Array.isArray(delta)) {
+          for (const part of delta) {
+            if (part && typeof part.text === "string") assistantText += part.text;
+          }
         }
       } catch {
         continue;
@@ -92,6 +112,10 @@ function extractStreamingUsage(buffered: Buffer): UsageNumbers {
     }
   } catch {
     // ignore
+  }
+  if (foundUsage) return foundUsage;
+  if (assistantText.length > 0) {
+    return { promptTokens: 0, responseTokens: countTokens(assistantText) };
   }
   return { promptTokens: 0, responseTokens: 0 };
 }

@@ -19,6 +19,7 @@ export const BASELINE_PRICING: ModelPricing[] = [
   { model: "claude-sonnet-4-6", input_per_mtok: 3.0, output_per_mtok: 15.0 },
   { model: "claude-opus-4-7", input_per_mtok: 15.0, output_per_mtok: 75.0 },
   { model: "gemini-2.5-flash", input_per_mtok: 0.3, output_per_mtok: 2.5 },
+  { model: "gemini-2.5-flash-lite", input_per_mtok: 0.1, output_per_mtok: 0.4 },
   { model: "gemini-2.5-pro", input_per_mtok: 1.25, output_per_mtok: 10.0 },
   { model: "llama-3.3-70b", input_per_mtok: 0.59, output_per_mtok: 0.79 },
 ];
