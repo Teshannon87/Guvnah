@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import type { GuvnahConfig } from "../core/config/schema.js";
 import { CircuitBreaker } from "../core/proxy/circuitBreaker.js";
 import { registerChatCompletionsRoute } from "./routes/chatCompletions.js";
+import { registerMessagesRoute } from "./routes/messages.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { logger } from "../core/logging/logger.js";
 
@@ -31,6 +32,11 @@ export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   registerHealthRoute(app, deps.version);
   registerChatCompletionsRoute(app, {
+    config: deps.config,
+    db: deps.db,
+    breaker,
+  });
+  registerMessagesRoute(app, {
     config: deps.config,
     db: deps.db,
     breaker,

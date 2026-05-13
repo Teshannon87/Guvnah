@@ -21,6 +21,7 @@ import {
 import { logger } from "../../core/logging/logger.js";
 import { emitCostLine } from "../../core/notify/cliNotifier.js";
 import { countTokens } from "../../core/tokens/countTokens.js";
+import { estimateCostUsd, resolvePricing } from "../../core/pricing/resolvePricing.js";
 import type { ChatRequest, PromptInspection } from "../../types/index.js";
 
 interface RouteDeps {
@@ -190,9 +191,14 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
           task_id: headers.task_id,
           task_type: headers.task_type,
           upstream_model: parsed?.model ?? null,
+          upstream: null,
+          dialect: "openai",
           prompt_tokens: inspection.promptTokens,
           response_tokens: 0,
           total_tokens: 0,
+          cache_creation_tokens: 0,
+          cache_read_tokens: 0,
+          cost_usd: null,
           system_tokens: inspection.categories.system,
           tool_tokens: inspection.categories.tools,
           memory_tokens: inspection.categories.memory,
@@ -210,7 +216,15 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
       undefined,
     );
 
-    const recordPost = async (responseTokens: number, latencyMs: number, status: number, errorMessage: string | null) => {
+    const recordPost = async (args: {
+      responseTokens: number;
+      latencyMs: number;
+      status: number;
+      errorMessage: string | null;
+      upstreamName?: string | null;
+      costUsd?: number | null;
+    }) => {
+      const { responseTokens, latencyMs, status, errorMessage, upstreamName, costUsd } = args;
       await deps.breaker.run<void>(
         "db-post",
         () => {
@@ -219,6 +233,8 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
             id: callId,
             response_tokens: responseTokens,
             total_tokens: inspection.promptTokens + responseTokens,
+            cost_usd: costUsd ?? null,
+            upstream: upstreamName ?? null,
             latency_ms: latencyMs,
             status: status >= 200 && status < 300 ? "ok" : "upstream_error",
             error_message: errorMessage,
@@ -292,7 +308,7 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error("guvnah.upstream.error", { error: msg, streaming: true });
-        await recordPost(0, 0, 502, msg);
+        await recordPost({ responseTokens: 0, latencyMs: 0, status: 502, errorMessage: msg });
         reply.code(502);
         return {
           error: {
@@ -331,12 +347,26 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
         const msg = err instanceof Error ? err.message : String(err);
         logger.error("guvnah.stream.error", { error: msg });
         try { raw.end(); } catch { /* ignore */ }
-        await recordPost(0, Date.now() - upstream.startedAt, 502, msg);
+        await recordPost({
+          responseTokens: 0,
+          latencyMs: Date.now() - upstream.startedAt,
+          status: 502,
+          errorMessage: msg,
+          upstreamName: upstream.upstream_name,
+        });
         return;
       }
 
       const usage = extractStreamingUsage(Buffer.concat(accumulated));
-      await recordPost(usage.responseTokens, Date.now() - upstream.startedAt, upstream.status, null);
+      const costUsd = computeOpenAICost(parsed?.model ?? null, inspection?.promptTokens ?? usage.promptTokens, usage.responseTokens, deps.config);
+      await recordPost({
+        responseTokens: usage.responseTokens,
+        latencyMs: Date.now() - upstream.startedAt,
+        status: upstream.status,
+        errorMessage: null,
+        upstreamName: upstream.upstream_name,
+        costUsd,
+      });
       emitCostLineSafe(usage);
       return;
     }
@@ -352,7 +382,7 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error("guvnah.upstream.error", { error: msg });
-      await recordPost(0, 0, 502, msg);
+      await recordPost({ responseTokens: 0, latencyMs: 0, status: 502, errorMessage: msg });
       reply.code(502);
       return {
         error: {
@@ -364,11 +394,31 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
     }
 
     const usage = extractUsage(upstream.body);
-    await recordPost(usage.responseTokens, upstream.latencyMs, upstream.status, null);
+    const costUsd = computeOpenAICost(parsed?.model ?? null, inspection?.promptTokens ?? usage.promptTokens, usage.responseTokens, deps.config);
+    await recordPost({
+      responseTokens: usage.responseTokens,
+      latencyMs: upstream.latencyMs,
+      status: upstream.status,
+      errorMessage: null,
+      upstreamName: upstream.upstream_name,
+      costUsd,
+    });
     emitCostLineSafe(usage);
 
     copyResponseHeaders(reply, upstream.headers);
     reply.code(upstream.status);
     return reply.send(upstream.body);
   });
+}
+
+function computeOpenAICost(
+  model: string | null,
+  promptTokens: number,
+  responseTokens: number,
+  config: import("../../core/config/schema.js").GuvnahConfig,
+): number | null {
+  if (!model) return null;
+  const { pricing } = resolvePricing(model, config);
+  if (!pricing) return null;
+  return estimateCostUsd(pricing, promptTokens, responseTokens);
 }

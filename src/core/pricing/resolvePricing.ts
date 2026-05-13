@@ -99,3 +99,29 @@ export function estimateCostUsd(
   const output = (responseTokens / 1_000_000) * pricing.output_per_mtok;
   return input + output;
 }
+
+// Anthropic prompt-caching multipliers. Per Anthropic docs (as of 2026):
+//   cache write = 1.25x the base input rate
+//   cache read  = 0.10x the base input rate
+// These multipliers are universal across Claude models, so we apply them at
+// the cost-calc layer rather than per-model.
+const ANTHROPIC_CACHE_WRITE_MULTIPLIER = 1.25;
+const ANTHROPIC_CACHE_READ_MULTIPLIER = 0.10;
+
+export function estimateCostUsdWithCache(args: {
+  pricing: ModelPricing;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}): number {
+  const { pricing, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens } = args;
+  // Anthropic's input_tokens excludes cache tokens; cache fields are billed separately.
+  const inputCost = (inputTokens / 1_000_000) * pricing.input_per_mtok;
+  const cacheWriteCost =
+    (cacheCreationTokens / 1_000_000) * pricing.input_per_mtok * ANTHROPIC_CACHE_WRITE_MULTIPLIER;
+  const cacheReadCost =
+    (cacheReadTokens / 1_000_000) * pricing.input_per_mtok * ANTHROPIC_CACHE_READ_MULTIPLIER;
+  const outputCost = (outputTokens / 1_000_000) * pricing.output_per_mtok;
+  return inputCost + cacheWriteCost + cacheReadCost + outputCost;
+}
