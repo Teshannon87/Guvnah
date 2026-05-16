@@ -110,6 +110,17 @@ function extractOpenAiStreamingUsage(body: Buffer): OpenAiUsage {
 }
 
 export default async function analyze(task: AnalysisTask): Promise<AnalysisResult> {
+  // Piscina serializes the task via structured clone, which turns Node Buffers
+  // into plain Uint8Arrays — and Uint8Array.toString("utf8") returns the byte
+  // array as decimal text, not the decoded string. Wrap once at the entry so
+  // downstream code can treat them as Buffers uniformly. Buffer.from over a
+  // Uint8Array is zero-copy (shares the underlying ArrayBuffer).
+  const requestBody = Buffer.isBuffer(task.requestBody)
+    ? task.requestBody
+    : Buffer.from(task.requestBody);
+  const responseBody = Buffer.isBuffer(task.responseBody)
+    ? task.responseBody
+    : Buffer.from(task.responseBody);
   const db = openDb(task.dbPath);
   const headers = task.guvnahHeaders;
   const httpOk = task.status >= 200 && task.status < 300;
@@ -119,7 +130,7 @@ export default async function analyze(task: AnalysisTask): Promise<AnalysisResul
   // inspectPrompt only understands OpenAI-shape messages.
   let inspection: PromptInspection | null = null;
   if (task.dialect === "openai") {
-    const parsed = parseChatRequest(task.requestBody);
+    const parsed = parseChatRequest(requestBody);
     if (parsed) {
       try {
         const previousStablePrefixHash = db ? getLastStablePrefixHash(db, headers.run_id) : null;
@@ -159,16 +170,16 @@ export default async function analyze(task: AnalysisTask): Promise<AnalysisResul
   let cacheReadTokens = 0;
   if (task.dialect === "anthropic") {
     const u = task.streaming
-      ? extractAnthropicStreamingUsage(task.responseBody)
-      : extractAnthropicUsage(task.responseBody);
+      ? extractAnthropicStreamingUsage(responseBody)
+      : extractAnthropicUsage(responseBody);
     promptTokens = u.inputTokens;
     responseTokens = u.outputTokens;
     cacheCreationTokens = u.cacheCreationTokens;
     cacheReadTokens = u.cacheReadTokens;
   } else {
     const u = task.streaming
-      ? extractOpenAiStreamingUsage(task.responseBody)
-      : extractOpenAiUsage(task.responseBody);
+      ? extractOpenAiStreamingUsage(responseBody)
+      : extractOpenAiUsage(responseBody);
     // Prefer inspection's prompt count when upstream didn't return one (e.g.,
     // Gemini's OpenAI-compat endpoint omits it in streaming).
     promptTokens = u.promptTokens || inspection?.promptTokens || 0;
