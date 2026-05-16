@@ -7,6 +7,8 @@ import { startStubAnthropicUpstream, type StubAnthropicUpstream } from "./helper
 import { createServer } from "../src/server/createServer.js";
 import { openDatabase, closeDatabase } from "../src/db/client.js";
 import { defaultConfig } from "../src/core/config/defaultConfig.js";
+import { createInlinePool, type AnalysisPool } from "../src/core/analysis/pool.js";
+import analyzeInline from "../src/core/analysis/worker.js";
 import type { FastifyInstance } from "fastify";
 import type Database from "better-sqlite3";
 import type { GuvnahConfig } from "../src/core/config/schema.js";
@@ -18,6 +20,7 @@ interface Ctx {
   db: Database.Database;
   guvnah: FastifyInstance;
   guvnahUrl: string;
+  pool: AnalysisPool;
 }
 
 async function bootCtx(): Promise<Ctx> {
@@ -40,9 +43,10 @@ async function bootCtx(): Promise<Ctx> {
   const handle = openDatabase(config.database.path);
   if (!handle.db) throw new Error(`DB failed: ${handle.error?.message}`);
   const db = handle.db;
-  const guvnah = await createServer({ config, db, version: "test" });
+  const pool = createInlinePool(analyzeInline);
+  const guvnah = await createServer({ config, db, version: "test", pool, dbPath: config.database.path });
   const guvnahUrl = await guvnah.listen({ host: "127.0.0.1", port: 0 });
-  return { tmp, stub, config, db, guvnah, guvnahUrl };
+  return { tmp, stub, config, db, guvnah, guvnahUrl, pool };
 }
 
 async function shutdownCtx(ctx: Ctx): Promise<void> {
@@ -85,6 +89,8 @@ describe("Anthropic /v1/messages route", () => {
     const upstreamBody = ctx.stub.lastBody() as { model: string };
     expect(upstreamBody.model).toBe("claude-haiku-4-5");
 
+    // Analysis runs off the request path; wait for the row to land.
+    await ctx.pool.drain?.();
     const row = ctx.db
       .prepare(
         `SELECT dialect, upstream, upstream_model, prompt_tokens, response_tokens,
