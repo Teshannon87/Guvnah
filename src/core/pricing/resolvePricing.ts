@@ -22,12 +22,20 @@ const aliasMap: Record<string, string> = {
   "anthropic/claude-opus-4-7": "claude-opus-4-7",
   "google/gemini-2.5-flash": "gemini-2.5-flash",
   "google/gemini-2.5-pro": "gemini-2.5-pro",
+  "gemini/gemini-2.5-flash": "gemini-2.5-flash",
+  "gemini/gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+  "gemini/gemini-2.5-pro": "gemini-2.5-pro",
   "meta-llama/llama-3.3-70b": "llama-3.3-70b",
 };
 
 function normalize(name: string): string {
   const trimmed = name.trim().toLowerCase();
-  return aliasMap[trimmed] ?? trimmed.replace(/^(openai|anthropic|google|meta-llama)\//, "");
+  // The fallback regex strips routing prefixes the user-facing gateway uses
+  // (gemini/, ollama/, hermes/) so baseline lookups still match. OpenRouter
+  // catalog entries are stored *with* their canonical provider prefix, so we
+  // intentionally don't strip those (openai/, anthropic/, etc) for OpenRouter
+  // lookups — aliasMap handles those for baseline.
+  return aliasMap[trimmed] ?? trimmed.replace(/^(openai|anthropic|google|meta-llama|gemini|ollama|hermes)\//, "");
 }
 
 function readOpenRouterCache(dbPath: string): ModelPricing[] {
