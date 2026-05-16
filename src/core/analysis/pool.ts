@@ -3,6 +3,7 @@
 // real worker threads. Production wires the file-based pool.
 
 import { Piscina } from "piscina";
+import { cpus } from "node:os";
 import { logger } from "../logging/logger.js";
 import type { AnalysisResult, AnalysisTask } from "./types.js";
 
@@ -17,7 +18,7 @@ export interface AnalysisPool {
 export function createPiscinaPool(workerFilePath: string, opts?: { maxThreads?: number }): AnalysisPool {
   const pool = new Piscina<AnalysisTask, AnalysisResult>({
     filename: workerFilePath,
-    maxThreads: opts?.maxThreads ?? Math.max(2, Math.min(8, (require("node:os").cpus()?.length ?? 4) - 1)),
+    maxThreads: opts?.maxThreads ?? Math.max(2, Math.min(8, (cpus()?.length ?? 4) - 1)),
     // Don't queue forever — protects memory if analysis is slower than ingest.
     maxQueue: 1024,
     idleTimeout: 30_000,
