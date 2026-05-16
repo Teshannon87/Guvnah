@@ -10,6 +10,26 @@ const POST_MIGRATIONS: Array<{ description: string; sql: string }> = [
     description: "tool_usage.description_preview",
     sql: `ALTER TABLE tool_usage ADD COLUMN description_preview TEXT`,
   },
+  {
+    description: "llm_calls.upstream",
+    sql: `ALTER TABLE llm_calls ADD COLUMN upstream TEXT`,
+  },
+  {
+    description: "llm_calls.dialect",
+    sql: `ALTER TABLE llm_calls ADD COLUMN dialect TEXT`,
+  },
+  {
+    description: "llm_calls.cost_usd",
+    sql: `ALTER TABLE llm_calls ADD COLUMN cost_usd REAL`,
+  },
+  {
+    description: "llm_calls.cache_creation_tokens",
+    sql: `ALTER TABLE llm_calls ADD COLUMN cache_creation_tokens INTEGER DEFAULT 0`,
+  },
+  {
+    description: "llm_calls.cache_read_tokens",
+    sql: `ALTER TABLE llm_calls ADD COLUMN cache_read_tokens INTEGER DEFAULT 0`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

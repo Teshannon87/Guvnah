@@ -7,6 +7,8 @@ import { startStubUpstream, type StubUpstream } from "./helpers/stubUpstream.js"
 import { createServer } from "../src/server/createServer.js";
 import { openDatabase, closeDatabase } from "../src/db/client.js";
 import { defaultConfig } from "../src/core/config/defaultConfig.js";
+import { createInlinePool, type AnalysisPool } from "../src/core/analysis/pool.js";
+import analyzeInline from "../src/core/analysis/worker.js";
 import { buildRunReport } from "../src/core/reports/buildRunReport.js";
 import { formatRunReport } from "../src/core/reports/formatRunReport.js";
 import type { FastifyInstance } from "fastify";
@@ -20,6 +22,7 @@ interface Ctx {
   db: Database.Database;
   guvnah: FastifyInstance;
   guvnahUrl: string;
+  pool: AnalysisPool;
 }
 
 async function bootCtx(): Promise<Ctx> {
@@ -45,9 +48,10 @@ async function bootCtx(): Promise<Ctx> {
   const handle = openDatabase(config.database.path);
   if (!handle.db) throw new Error(`DB failed: ${handle.error?.message}`);
   const db = handle.db;
-  const guvnah = await createServer({ config, db, version: "test" });
+  const pool = createInlinePool(analyzeInline);
+  const guvnah = await createServer({ config, db, version: "test", pool, dbPath: config.database.path });
   const guvnahUrl = await guvnah.listen({ host: "127.0.0.1", port: 0 });
-  return { tmp, stub, config, db, guvnah, guvnahUrl };
+  return { tmp, stub, config, db, guvnah, guvnahUrl, pool };
 }
 
 async function shutdownCtx(ctx: Ctx): Promise<void> {
@@ -87,6 +91,8 @@ describe("Guvnah smoke", () => {
     expect(json.choices[0]!.message.content).toBe("ack");
     expect(ctx.stub.callCount()).toBe(1);
 
+    // Analysis runs off the request path; wait for it before reading DB.
+    await ctx.pool.drain?.();
     const report = buildRunReport(ctx.db, "smoke-run-1");
     expect(report).not.toBeNull();
     expect(report!.totals.total_calls).toBe(1);

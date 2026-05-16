@@ -7,6 +7,7 @@ export const defaultConfig: GuvnahConfig = {
     api_key_env: "UPSTREAM_API_KEY",
     forward_client_auth: false,
   },
+  upstreams: {},
   database: { path: ".guvnah-context/guvnah-context.sqlite" },
   mode: { inspect_only: true, mutate_prompts: false },
   logging: {

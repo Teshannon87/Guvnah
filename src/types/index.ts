@@ -140,9 +140,14 @@ export interface LlmCallRow {
   task_id: string | null;
   task_type: string | null;
   upstream_model: string | null;
+  upstream: string | null;
+  dialect: string | null;
   prompt_tokens: number;
   response_tokens: number;
   total_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  cost_usd: number | null;
   system_tokens: number;
   tool_tokens: number;
   memory_tokens: number;

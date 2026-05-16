@@ -22,12 +22,20 @@ const aliasMap: Record<string, string> = {
   "anthropic/claude-opus-4-7": "claude-opus-4-7",
   "google/gemini-2.5-flash": "gemini-2.5-flash",
   "google/gemini-2.5-pro": "gemini-2.5-pro",
+  "gemini/gemini-2.5-flash": "gemini-2.5-flash",
+  "gemini/gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+  "gemini/gemini-2.5-pro": "gemini-2.5-pro",
   "meta-llama/llama-3.3-70b": "llama-3.3-70b",
 };
 
 function normalize(name: string): string {
   const trimmed = name.trim().toLowerCase();
-  return aliasMap[trimmed] ?? trimmed.replace(/^(openai|anthropic|google|meta-llama)\//, "");
+  // The fallback regex strips routing prefixes the user-facing gateway uses
+  // (gemini/, ollama/, hermes/) so baseline lookups still match. OpenRouter
+  // catalog entries are stored *with* their canonical provider prefix, so we
+  // intentionally don't strip those (openai/, anthropic/, etc) for OpenRouter
+  // lookups — aliasMap handles those for baseline.
+  return aliasMap[trimmed] ?? trimmed.replace(/^(openai|anthropic|google|meta-llama|gemini|ollama|hermes)\//, "");
 }
 
 function readOpenRouterCache(dbPath: string): ModelPricing[] {
@@ -98,4 +106,30 @@ export function estimateCostUsd(
   const input = (promptTokens / 1_000_000) * pricing.input_per_mtok;
   const output = (responseTokens / 1_000_000) * pricing.output_per_mtok;
   return input + output;
+}
+
+// Anthropic prompt-caching multipliers. Per Anthropic docs (as of 2026):
+//   cache write = 1.25x the base input rate
+//   cache read  = 0.10x the base input rate
+// These multipliers are universal across Claude models, so we apply them at
+// the cost-calc layer rather than per-model.
+const ANTHROPIC_CACHE_WRITE_MULTIPLIER = 1.25;
+const ANTHROPIC_CACHE_READ_MULTIPLIER = 0.10;
+
+export function estimateCostUsdWithCache(args: {
+  pricing: ModelPricing;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}): number {
+  const { pricing, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens } = args;
+  // Anthropic's input_tokens excludes cache tokens; cache fields are billed separately.
+  const inputCost = (inputTokens / 1_000_000) * pricing.input_per_mtok;
+  const cacheWriteCost =
+    (cacheCreationTokens / 1_000_000) * pricing.input_per_mtok * ANTHROPIC_CACHE_WRITE_MULTIPLIER;
+  const cacheReadCost =
+    (cacheReadTokens / 1_000_000) * pricing.input_per_mtok * ANTHROPIC_CACHE_READ_MULTIPLIER;
+  const outputCost = (outputTokens / 1_000_000) * pricing.output_per_mtok;
+  return inputCost + cacheWriteCost + cacheReadCost + outputCost;
 }

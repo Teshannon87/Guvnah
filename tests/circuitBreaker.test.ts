@@ -5,6 +5,8 @@ import { CircuitBreaker } from "../src/core/proxy/circuitBreaker.js";
 import { createServer } from "../src/server/createServer.js";
 import { defaultConfig } from "../src/core/config/defaultConfig.js";
 import { startStubUpstream, type StubUpstream } from "./helpers/stubUpstream.js";
+import { createInlinePool } from "../src/core/analysis/pool.js";
+import analyzeInline from "../src/core/analysis/worker.js";
 
 describe("CircuitBreaker unit", () => {
   it("returns the fallback on failure without rethrowing", async () => {
@@ -61,6 +63,7 @@ describe("Proxy resilience", () => {
       },
       db: null,
       version: "test",
+      pool: createInlinePool(analyzeInline),
     });
     guvnahUrl = await guvnah.listen({ host: "127.0.0.1", port: 0 });
   });
@@ -95,6 +98,7 @@ describe("Proxy resilience", () => {
       },
       db: null,
       version: "test",
+      pool: createInlinePool(analyzeInline),
     });
     guvnahUrl = await guvnah.listen({ host: "127.0.0.1", port: 0 });
 

@@ -29,13 +29,15 @@ export function ensureRun(
 export function insertCall(db: Database.Database, row: LlmCallRow): void {
   db.prepare(
     `INSERT INTO llm_calls (
-      id, run_id, agent_id, task_id, task_type, upstream_model,
+      id, run_id, agent_id, task_id, task_type, upstream_model, upstream, dialect,
       prompt_tokens, response_tokens, total_tokens,
+      cache_creation_tokens, cache_read_tokens, cost_usd,
       system_tokens, tool_tokens, memory_tokens, history_tokens, tool_output_tokens, unknown_tokens,
       request_hash, stable_prefix_hash, latency_ms, status, error_message, created_at
     ) VALUES (
-      @id, @run_id, @agent_id, @task_id, @task_type, @upstream_model,
+      @id, @run_id, @agent_id, @task_id, @task_type, @upstream_model, @upstream, @dialect,
       @prompt_tokens, @response_tokens, @total_tokens,
+      @cache_creation_tokens, @cache_read_tokens, @cost_usd,
       @system_tokens, @tool_tokens, @memory_tokens, @history_tokens, @tool_output_tokens, @unknown_tokens,
       @request_hash, @stable_prefix_hash, @latency_ms, @status, @error_message, @created_at
     )`,
@@ -48,6 +50,10 @@ export function updateCallResult(
     id: string;
     response_tokens: number;
     total_tokens: number;
+    cache_creation_tokens?: number;
+    cache_read_tokens?: number;
+    cost_usd?: number | null;
+    upstream?: string | null;
     latency_ms: number;
     status: string;
     error_message: string | null;
@@ -57,11 +63,21 @@ export function updateCallResult(
     `UPDATE llm_calls
      SET response_tokens = @response_tokens,
          total_tokens = @total_tokens,
+         cache_creation_tokens = COALESCE(@cache_creation_tokens, cache_creation_tokens),
+         cache_read_tokens = COALESCE(@cache_read_tokens, cache_read_tokens),
+         cost_usd = COALESCE(@cost_usd, cost_usd),
+         upstream = COALESCE(@upstream, upstream),
          latency_ms = @latency_ms,
          status = @status,
          error_message = @error_message
      WHERE id = @id`,
-  ).run(args);
+  ).run({
+    cache_creation_tokens: null,
+    cache_read_tokens: null,
+    cost_usd: null,
+    upstream: null,
+    ...args,
+  });
 }
 
 export function insertFlag(

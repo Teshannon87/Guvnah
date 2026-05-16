@@ -10,6 +10,18 @@ export const ConfigSchema = z.object({
     api_key_env: z.string().default("UPSTREAM_API_KEY"),
     forward_client_auth: z.boolean().default(false),
   }),
+  upstreams: z
+    .record(
+      z.string(),
+      z.object({
+        base_url: z.string().url().or(z.string().startsWith("http")),
+        api_key_env: z.string().optional(),
+        auth: z.enum(["bearer", "x-api-key", "none"]).default("bearer"),
+        extra_headers: z.record(z.string(), z.string()).default({}),
+      }),
+    )
+    .default({}),
+  default_upstream: z.string().optional(),
   database: z.object({
     path: z.string().default(".guvnah-context/guvnah-context.sqlite"),
   }),

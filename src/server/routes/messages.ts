@@ -1,7 +1,6 @@
-// /v1/chat/completions — pure pass-through. The handler does no inspection,
-// no tokenization, and no DB writes on the request path. After the upstream
-// response has been forwarded to the client, the raw request and response
-// bytes are submitted to the worker pool for off-path analysis.
+// /v1/messages — pure pass-through for Anthropic's native API. Same off-path
+// analysis pattern as /v1/chat/completions. No pre-flight DB writes; the worker
+// pool persists the row after the client has already received bytes.
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
@@ -39,8 +38,8 @@ function copyResponseHeaders(reply: FastifyReply, headers: Record<string, string
   }
 }
 
-export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDeps): void {
-  app.post("/v1/chat/completions", async (req: FastifyRequest, reply: FastifyReply) => {
+export function registerMessagesRoute(app: FastifyInstance, deps: RouteDeps): void {
+  app.post("/v1/messages", async (req: FastifyRequest, reply: FastifyReply) => {
     const rawBody = req.body as Buffer;
     const { model, streaming } = parseModel(rawBody);
     const guvnahHeaders = extractGuvnahHeaders(req.headers);
@@ -53,13 +52,11 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
       latencyMs: number,
       upstreamName: string,
     ) => {
-      // Single submit. Worker writes the row + returns the result; main thread
-      // emits the cost line when the result lands. Both happen off the hot path.
       deps.pool
         .submit({
           callId,
           createdAt,
-          dialect: "openai",
+          dialect: "anthropic",
           requestBody: rawBody,
           responseBody,
           streaming,
@@ -109,10 +106,11 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
           bodyBytes: rawBody,
           headers: req.headers as Record<string, string | string[] | undefined>,
           config: deps.config,
+          route: "messages",
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        logger.error("guvnah.upstream.error", { error: msg, streaming: true });
+        logger.error("guvnah.upstream.error", { error: msg, streaming: true, route: "messages" });
         submit(Buffer.alloc(0), 502, 0, "unknown");
         reply.code(502);
         return {
@@ -145,7 +143,7 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
         raw.end();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        logger.error("guvnah.stream.error", { error: msg });
+        logger.error("guvnah.stream.error", { error: msg, route: "messages" });
         try { raw.end(); } catch { /* ignore */ }
         submit(Buffer.concat(accumulated), 502, Date.now() - upstream.startedAt, upstream.upstream_name);
         return;
@@ -167,10 +165,11 @@ export function registerChatCompletionsRoute(app: FastifyInstance, deps: RouteDe
         bodyBytes: rawBody,
         headers: req.headers as Record<string, string | string[] | undefined>,
         config: deps.config,
+        route: "messages",
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error("guvnah.upstream.error", { error: msg });
+      logger.error("guvnah.upstream.error", { error: msg, route: "messages" });
       submit(Buffer.alloc(0), 502, 0, "unknown");
       reply.code(502);
       return {
